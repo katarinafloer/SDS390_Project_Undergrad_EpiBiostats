@@ -1,0 +1,8 @@
+# Help GitHub Linguist describe this as an R/Quarto analysis project.
+*.qmd linguist-language=R
+
+# Supporting files should not dominate the repository language summary.
+*.bib linguist-vendored
+*.csl linguist-vendored
+*.csv linguist-generated
+*.pdf linguist-generated
