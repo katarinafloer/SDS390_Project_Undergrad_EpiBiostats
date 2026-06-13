@@ -43,11 +43,5 @@ The de-identified trial data used for this analysis are publicly available throu
 
 The CSV files in `data/` are processed analysis datasets derived from the public source data. Raw downloaded spreadsheet files are not included in this repository.
 
-## Reproducing the Report
 
-To render the report, install Quarto and the required R packages, then run:
-
-```bash
-quarto render SDS390FinalFloer_eval.qmd
-```
 
