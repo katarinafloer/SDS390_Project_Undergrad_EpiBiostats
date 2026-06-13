@@ -1,0 +1,424 @@
+---
+title: "SDS 390: Final Report"
+author: "Katarina Flöer"
+date: "December 17, 2025"
+format: 
+  pdf:
+    keep-tex: true
+    latex_engine: pdflatex
+    toc: true
+    df-print: kable
+    include-in-header: 
+       text: |
+        \usepackage{xcolor}
+        \definecolor{myblue}{RGB}{0,0,255}
+        \newenvironment{blueenv}{\color{myblue}}{}
+         \usepackage{fvextra}
+         \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+         \DefineVerbatimEnvironment{OutputCode}{Verbatim}{breaklines,commandchars=\\\{\}}
+    geometry: 
+      - left=1in
+      - right=1in
+      - top=1in
+      - bottom=1in
+header-includes:
+  - \usepackage{float}
+editor: visual
+bibliography: references.bib
+csl: apa_1.csl
+---
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+#| results: false
+library(tidyverse)
+library(broom)
+library(ResourceSelection)
+library(aod)
+library(AER)
+library(pscl)
+library(lmtest)
+library(readxl)
+library(knitr)
+library(kableExtra)
+library(naniar)
+library(lme4)
+library(lmerTest)  # optional: p-values for fixed effects
+library(broom.mixed)
+```
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+#| results: false
+#| eval: false
+clinical_data<-read_excel("4949370/Clinical Data.xlsx")
+demographic_data<-read_excel("4949370/Demographic Data.xlsx")
+observed_data<-read_excel("4949370/Observed Outcome Data.xlsx")
+site_data<-read_excel("4949370/Site Characteristic Data.xlsx")
+```
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+#| results: false
+#| eval: false
+colnames(clinical_data)
+colnames(demographic_data)
+colnames(observed_data)
+colnames(site_data)
+```
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+#| results: false
+#| eval: false
+tassh_wide <- clinical_data %>%
+  left_join(demographic_data, by = "Participant ID") %>%
+  left_join(observed_data,   by = "Participant ID") %>%
+  left_join(site_data, by = c("Site Number" = "Site"))
+dim(tassh_wide)        # should be 757 x (8+8+7+7 minus overlaps)
+sum(is.na(tassh_wide$`SBP Baseline`))
+n_distinct(clinical_data$`Participant ID`)
+n_distinct(tassh_wide$`Participant ID`)
+write.csv(tassh_wide, "data/tassh_analysis_wide.csv", row.names = FALSE)
+```
+
+### 1. Introduction
+
+Hypertension is a leading and rapidly growing contributor to cardiovascular disease worldwide, with particularly severe consequences in low- and middle-income countries. In sub-Saharan Africa, hypertension prevalence has increased substantially over the past two decades, yet control rates remain low [@echouffo-tcheuguiHighBloodPressure2015]. Barriers to effective hypertension management include limited access to health insurance, high out-of-pocket costs, and a severe shortage of trained healthcare providers. In Ghana specifically, the healthcare workforce is critically constrained, with approximately one physician and nine nurses per 10,000 people—far below World Health Organization (WHO) recommendations [@ogedegbeHealthInsuranceCoverage2018].
+
+Task shifting, defined as the redistribution of clinical responsibilities from physicians to trained nurses or non-physician healthcare workers, has emerged as a promising systems-level strategy to address workforce shortages. Prior work by the WHO demonstrated the potential effectiveness of nurse-led cardiovascular disease (CVD) risk management packages, but their implementation and comparative effectiveness within existing health insurance systems in sub-Saharan Africa had not been well studied [@ogedegbeHealthInsuranceCoverage2018].
+
+This project analyzes data from @ogedegbeHealthInsuranceCoverage2018 pragmatic cluster randomized trial conducted in Ghana that compared two systems-level strategies for hypertension control: (1) provision of health insurance coverage alone (HIC-only), and (2) health insurance coverage combined with a nurse-led task-shifting intervention implementing the WHO CVD Package (TASSH + HIC). The primary research question is:
+
+**Among adults with newly diagnosed hypertension in Ghana, does assignment to TASSH + HIC lead to a greater reduction in systolic blood pressure over 12 months compared to HIC alone?**
+
+### 2. Methods
+
+**Data Source and Study Design**
+
+Data for this analysis come from [@ogedegbeHealthInsuranceCoverage2018] two-arm pragmatic cluster randomized trial conducted in Ghana and published in PLOS Medicine. Thirty-two community health centers (CHCs) were randomized in a 1:1 ratio to either the HIC-only group or the TASSH + HIC group. Randomization occurred at the clinic level to minimize contamination, with patients nested within clinics.
+
+Participants were adults aged 40 years or older with newly diagnosed, untreated stage 1 hypertension and no prior history of cardiovascular disease or diabetes. In total, 757 patients were enrolled and followed at baseline, 6 months, and 12 months.
+
+**Interventions**
+
+1.  Patients in the HIC-only group received national health insurance coverage for 12 months, quarterly nurse visits for blood pressure monitoring, and educational materials about hypertension.
+
+2.  Patients in the TASSH + HIC group received the same insurance coverage plus a nurse-led implementation of the WHO CVD Package. Trained community health nurses conducted cardiovascular risk assessments, provided lifestyle counseling, initiated and titrated antihypertensive medications according to WHO and JNC-7 guidelines, and saw patients monthly for one year.
+
+**Outcome**
+
+The primary outcome was change in systolic blood pressure (SBP) from baseline to 12 months. SBP was measured using validated automated blood pressure devices at all time points.
+
+**Statistical Analysis**
+
+Because SBP was measured repeatedly for each participant and participants were clustered within clinics, standard linear regression methods that assume independent observations are inappropriate [@bilderAnalysisCategoricalData2015]. Ignoring this correlation structure would underestimate uncertainty and inflate Type I error rates, increasing the risk of falsely detecting a treatment effect.
+
+To address this, I used a linear mixed-effects model as explained in @bilderAnalysisCategoricalData2015 with:
+
+-   Fixed effects for treatment arm, time, and their interaction,
+
+-   Random intercepts for clinic and participant to account for clustering and repeated measurements.
+
+Time was modeled as a categorical variable (baseline, 6 months, 12 months) to allow for non-linear changes in blood pressure over time. The primary parameter of interest was the treatment × time interaction at 12 months, representing the between-group difference in SBP change at that time point. The validity of the interaction term was confirmed by comparing a simple and interaction model using maximum likelihood (ML) estimation and a likelihood ratio test (Table 1, p=0.007). Final parameter estimates were obtained using restricted maximum likelihood (REML), which provides less biased variance estimates [@zhangTutorialRestrictedMaximum].
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+#| results: false
+tassh_wide<-read_csv("data/tassh_analysis_wide.csv")
+tassh_long <- tassh_wide %>%
+  select(
+    participant_id   = `Participant ID`,
+    site_number      = `Site Number`,
+    treatment        = `Tx or Ctrl`,
+    sbp_baseline     = `SBP Baseline`,
+    sbp_6m           = `SBP 6 Months`,
+    sbp_12m          = `SBP 12 Months`,
+    dbp_baseline     = `DBP Baseline`,
+    dbp_6m           = `DBP 6 Months`,
+    dbp_12m          = `DBP 12 Months`,
+    Age, Gender, `Education Level`, `Employment Status`,
+    Literacy, Smoking, Income,
+    `CV Risk`, BMI, `BMI Classification`, `Physical Activity`,
+    `Rural/Urban`, `Doctors Available`, `Nurses Available`, `Patients annually`
+  ) %>%
+  pivot_longer(
+    cols = c(sbp_baseline, sbp_6m, sbp_12m,
+             dbp_baseline, dbp_6m, dbp_12m),
+    names_to  = c(".value", "time"),
+    names_sep = "_"
+  ) %>%
+  mutate(
+    # time is now "baseline", "6m", "12m"
+    time_months = dplyr::recode(time,
+                                "baseline" = 0,
+                                "6m"       = 6,
+                                "12m"      = 12),
+    treatment = factor(treatment),
+    site_number = factor(site_number),
+    participant_id = factor(participant_id)
+  )
+#write.csv(tassh_long, "data/tassh_analysis_long.csv", row.names = FALSE)
+```
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+#| results: false
+tassh_long <- tassh_long |>
+  mutate(time_f = factor(time_months,
+                          levels = c(0, 6, 12),
+                          labels = c("Baseline", "6 months", "12 months")))
+
+```
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+m_simple <- lmer(sbp ~ treatment + time_f +
+    (1 | site_number) +               
+    (1 | participant_id), data = tassh_long, REML = FALSE)
+m_interact <- lmer(sbp ~ treatment * time_f +
+    (1 | site_number) +                
+    (1 | participant_id), data = tassh_long, REML = FALSE)
+lrt_tab <- anova(m_simple, m_interact)
+lrt_tab |>
+  kable(
+    caption = "Likelihood ratio test comparing models with and without the treatment × time interaction",
+    digits = 3
+  ) |>
+  kable_styling(full_width = FALSE)
+
+```
+
+The final model is below with the interpretation: $$
+\text{SBP}_{ijt}
+=
+\beta_0
++ \beta_1 \,\text{Trt}_j
++ \beta_2 \,(\text{time}_t = 6)
++ \beta_{3} \,(\text{time}_t = 12)
++ \beta_{4} \,\text{Trt}_j \,(\text{time}_t = 6)
++ \beta_{5} \,\text{Trt}_j \,(\text{time}_t = 12)
++ u_j + v_{ij} + \varepsilon_{ijt}
+$$
+
+-   $SBP_{ijt}$ is the systolic blood pressure of participant $i$ in clinic $j$ at time $t$
+
+-   $\beta_0$ is the mean baseline SBP in the control group (HIC only)
+
+-   $\beta_1 \,\text{Trt}_j$ is the difference in baseline SBP between TASSH + HIC vs HIC only
+
+-   $\beta_2 \,(\text{time}_t = 6)$ time effect at 6 months, change in SBP from baseline to 6 months in the control group (HIC only)
+
+-   $\beta_{3} \,(\text{time}_t = 12)$ time effect at 12 months, change in SBP from baseline to 12 months in the control group
+
+-   $\beta_{4} \,\text{Trt}_j \,(\text{time}_t = 6)$ treatment × time interaction (6 months). Additional SBP change at 6 months in TASSH + HIC beyond the change seen in HIC only.
+
+-   $\beta_{5} \,\text{Trt}_j \,(\text{time}_t = 12)$ treatment × time interaction (12 months). Additional SBP change at 12 months in TASSH + HIC beyond the change seen in HIC only.
+
+-   $u_j$ clinic-level random intercept. Allows each clinic to have its own baseline SBP level. Accounts for shared clinic characteristics.
+
+-   $v_{ij}$ participant-level random intercept. Allows each participant to have their own baseline SBP. Accounts for repeated measurements within individuals
+
+-   $\varepsilon_{ijt}$ Residual error. Measurement noise / unexplained variation, varies across time within a participant
+
+### 3. Results
+
+**Study Population**
+
+Baseline characteristics (Table 2) were well balanced between treatment groups. Participants in both arms had similar age distributions, baseline SBP, body mass index, and gender composition, consistent with successful randomization.
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+baseline_table <- tassh_wide %>%
+  mutate(
+    treatment = factor(`Tx or Ctrl`,
+                       levels = c(0,1),
+                       labels = c("Control (HIC only)",
+                                  "TASSH + HIC"))
+  ) %>%
+  group_by(treatment) %>%
+  summarize(
+    n                 = n(),
+    `Age, mean (SD)`  = sprintf("%.1f (%.1f)",
+                                mean(Age, na.rm = TRUE),
+                                sd(Age, na.rm = TRUE)),
+    `SBP, mean (SD)`  = sprintf("%.1f (%.1f)",
+                                mean(`SBP Baseline`, na.rm = TRUE),
+                                sd(`SBP Baseline`, na.rm = TRUE)),
+    `BMI, mean (SD)`  = sprintf("%.1f (%.1f)",
+                                mean(BMI, na.rm = TRUE),
+                                sd(BMI, na.rm = TRUE)),
+    `Gender F, n (%)` = sprintf(
+      "%d (%.1f%%)",
+      sum(Gender == 1, na.rm = TRUE),
+      100 * mean(Gender == 1, na.rm = TRUE)
+    ),
+    .groups = "drop"
+  )
+
+baseline_table %>%
+  kable(
+    caption = "Baseline characteristics by treatment arm",
+    booktabs = TRUE,
+    align = c("l","c","c","c","c","c","c","c")
+  ) %>%
+  kable_styling(
+    latex_options = c("hold_position", "scale_down")
+  )
+```
+
+As shown in Figure 1, some variables exhibited moderate levels of missingness. Rather than excluding these observations, I retained all participants and time points in the analysis; the linear mixed-effects framework allows valid inference in the presence of unbalanced and incomplete repeated-measures data.
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+
+gg_miss_var(tassh_wide) +
+  labs(
+    caption = "Figure 1. Proportion of missing observations for each variable"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    base_family = "serif",
+    plot.title = element_text(face = "bold", size = 12),
+    plot.caption = element_text(size = 10, hjust = 0),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10)
+  )
+```
+
+**Main Findings**
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+#| results: false
+m_lmer_cat_REML <- lmer(
+  sbp ~ treatment * time_f +
+    (1 | site_number) +
+    (1 | participant_id),
+  data = tassh_long,
+  REML = TRUE
+)
+summary(m_lmer_cat_REML)
+```
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+#| results: false
+fixef_table <- broom.mixed::tidy(
+  m_lmer_cat_REML,
+  effects = "fixed",
+  conf.int = TRUE
+) %>%
+  mutate(
+    estimate = round(estimate, 2),
+    std.error = round(std.error, 2),
+    conf.low = round(conf.low, 2),
+    conf.high = round(conf.high, 2),
+    p.value = signif(p.value, 3)
+  ) %>%
+  select(
+    term,
+    estimate,
+    std.error,
+    conf.low,
+    conf.high,
+    p.value
+  )
+```
+
+From Table 3, we see that
+
+-   Mean SBP at baseline in the control group is 154.89 mmHg. At baseline, the TASSH group had SBP about 1.9 mmHg higher than control, not statistically significant.
+
+-   In the control group, SBP decreased by 14.0 mmHg from baseline to 6 months. In the control group, SBP decreased by 16.5 mmHg from baseline to 12 months. HIC alone works, and BP keeps improving over time.
+
+-   At 6 months, the TASSH group had an additional 4.5 mmHg reduction in SBP compared to the control group. At 12 months, the TASSH group had an additional 3.1 mmHg reduction in SBP compared to the control group.
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+fixef_table %>%
+  kable(
+    format = "latex",
+    col.names = c("Term","Estimate","SE","95% CI (Low)","95% CI (High)","p-value"),
+    caption = "Fixed effects from linear mixed-effects model",
+    booktabs = TRUE,
+    align = "lccccc"
+  ) %>%
+  kable_styling(
+    latex_options = c("hold_position", "scale_down"),
+    full_width = FALSE
+  )
+```
+
+### 4. Discussion and Conclusion
+
+This analysis provides evidence that adding a nurse-led task-shifting intervention to health insurance coverage leads to greater reductions in systolic blood pressure among adults with newly diagnosed hypertension in Ghana. While blood pressure improved in both groups over time, patients receiving the TASSH intervention experienced significantly larger and sustained reductions.
+
+The magnitude of the estimated treatment effect at 12 months (−3.1 mmHg) closely aligns with the original study’s reported effect of −3.6 mmHg. Small numerical differences are expected, as the published analysis used a multilevel MANOVA framework.
+
+These results apply to adults with uncomplicated hypertension receiving care in public-sector primary health clinics in Ghana and support the use of task-shifting strategies to strengthen hypertension control in settings with limited healthcare workforce capacity.
+
+**Limitations**
+
+This analysis assumes that missing follow-up blood pressure measurements are missing at random. If patients with poorer blood pressure control were more likely to miss visits in ways not fully captured by observed data, treatment effects may be biased. Additionally, unmeasured clinic-level factors could influence outcomes.
+
+### 5. Appendix
+
+#### Data Wrangling and Dataset Construction
+
+The de-identified trial data used in this analysis are publicly available through Zenodo (https://zenodo.org/records/4949370). For this project, I constructed the analysis dataset by integrating information from four separate spreadsheets provided with the trial data:
+
+1.  Clinical Data.xlsx, containing clinical measurements such as systolic and diastolic blood pressure;
+
+2.  Demographic Data.xlsx, including participant characteristics such as age, gender, literacy, employment status, and other socioeconomic variables;
+
+3.  Observed Outcome Data.xlsx, which recorded blood pressure measurements at baseline, 6 months, and 12 months;
+
+4.  Site Characteristic Data.xlsx, which included clinic-level variables such as rural versus urban location, number of nurses, and annual patient volume.
+
+These datasets were merged using Participant ID and Site Number as unique identifiers, ensuring that individual-level observations were correctly linked to their corresponding clinic. After merging, the data were reshaped from a wide format into a long format, such that each row represents a single participant at a specific time point (baseline, 6 months, or 12 months). This structure is required for longitudinal modeling and allows repeated blood pressure measurements to be appropriately linked within individuals over time.
+
+The resulting analysis dataset, tassh_analysis_long.csv, contains 2,271 observations, corresponding to 757 participants measured at three time points. The final dataset includes variables for systolic and diastolic blood pressure, treatment assignment, time since baseline, individual-level covariates, and site-level characteristics. This long-format structure enabled the use of mixed-effects models to account for both within-participant correlation over time and clustering of participants within clinics.
+
+#### GOF
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+plot(m_lmer_cat_REML)
+```
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+qqnorm(residuals(m_lmer_cat_REML))
+qqline(residuals(m_lmer_cat_REML))
+```
+
+### 6. References

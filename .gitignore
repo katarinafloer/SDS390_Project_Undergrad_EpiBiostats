@@ -1,0 +1,22 @@
+# Quarto and LaTeX render artifacts
+*_files/
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.log
+*.out
+*.run.xml
+*.synctex.gz
+*.tex
+
+# R session files
+.Rhistory
+.RData
+.Rproj.user/
+
+# macOS
+.DS_Store
+
+# Raw downloaded source data
+4949370/
